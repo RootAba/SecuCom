@@ -1,8 +1,11 @@
 
 package com.example.SecuCom.controllers;
+import java.security.Principal;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 import javax.validation.Valid;
@@ -16,8 +19,10 @@ import com.example.SecuCom.payload.response.JwtResponse;
 import com.example.SecuCom.payload.response.MessageResponse;
 import com.example.SecuCom.repository.RoleRepository;
 import com.example.SecuCom.repository.UserRepository;
+import com.example.SecuCom.security.jwt.AuthTokenFilter;
 import com.example.SecuCom.security.jwt.JwtUtils;
 import com.example.SecuCom.security.services.UserDetailsImpl;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -25,6 +30,13 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -38,19 +50,24 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
   @Autowired
-  AuthenticationManager authenticationManager;
+ private AuthenticationManager authenticationManager;
 
   @Autowired
-  UserRepository userRepository;
+ private UserRepository userRepository;
 
   @Autowired
-  RoleRepository roleRepository;
+ private RoleRepository roleRepository;
 
   @Autowired
-  PasswordEncoder encoder;
+ private PasswordEncoder encoder;
 
+    @Autowired
+    private OAuth2AuthorizedClientService loadAuthorizedClientService;
   @Autowired
   JwtUtils jwtUtils;
+
+
+ // private static final Logger log = (Logger) LoggerFactory.getLogger(AuthTokenFilter.class);
 
   @PostMapping("/signin")
   public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
@@ -125,6 +142,61 @@ public class AuthController {
     user.setRoles(roles);
     userRepository.save(user);
 
+   // log.info("signup");
+
     return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
   }
+
+
+    @RequestMapping("/**")
+
+    private StringBuffer getOauth2LoginInfo(Principal user) {
+
+        StringBuffer protectedInfo = new StringBuffer();
+        OAuth2User principal = ((OAuth2AuthenticationToken) user).getPrincipal();
+        OAuth2AuthenticationToken authToken = ((OAuth2AuthenticationToken) user);
+        OAuth2AuthorizedClient authClient = this.loadAuthorizedClientService
+                .loadAuthorizedClient(authToken.getAuthorizedClientRegistrationId(), authToken.getName());
+        if (authToken.isAuthenticated()) {
+
+            Map<String, Object> userAttributes = ((DefaultOAuth2User) authToken.getPrincipal()).getAttributes();
+
+            String userToken = authClient.getAccessToken().getTokenValue();
+            protectedInfo.append("Bienvenue, " + userAttributes.get("name") + "<br><br>");
+            protectedInfo.append("e-mail: " + userAttributes.get("email") + "<br><br>");
+            protectedInfo.append("Access Token: " + userToken + "<br><br>");
+            OidcIdToken idToken = getIdToken(principal);
+            if (idToken != null) {
+
+                protectedInfo.append("idToken value: " + idToken.getTokenValue() + "<br><br>");
+                protectedInfo.append("Token mapped values <br><br>");
+
+                Map<String, Object> claims = idToken.getClaims();
+
+                for (String key : claims.keySet()) {
+                    protectedInfo.append("  " + key + ": " + claims.get(key) + "<br>");
+                }
+            }
+        } else {
+            protectedInfo.append("NA");
+        }
+        return protectedInfo;
+    }
+
+    /*
+     * @RequestMapping("/*")
+     * public String getGithub(Principal user)
+     * {
+     *
+     * return "Bienvenu " ;
+     * }
+     */
+
+    private OidcIdToken getIdToken(OAuth2User principal) {
+        if (principal instanceof DefaultOidcUser) {
+            DefaultOidcUser oidcUser = (DefaultOidcUser) principal;
+            return oidcUser.getIdToken();
+        }
+        return null;
+    }
 }
